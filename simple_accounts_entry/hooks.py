@@ -9,7 +9,23 @@ app_license = "mit"
 # ------------------
 
 # required_apps = []
-
+fixtures = [
+    {
+        "dt": "Custom Field",
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                    "Payment Entry-source_simple_voucher_doctype",
+                    "Payment Entry-source_simple_voucher",
+                    "Journal Entry-source_simple_voucher_doctype",
+                    "Journal Entry-source_simple_voucher"
+                ]
+            ]
+        ]
+    }
+]
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
 # 	{
