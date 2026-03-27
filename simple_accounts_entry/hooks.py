@@ -14,13 +14,36 @@ fixtures = [
         "dt": "Custom Field",
         "filters": [
             [
-                "name",
+                "dt",
                 "in",
                 [
-                    "Payment Entry-source_simple_voucher_doctype",
-                    "Payment Entry-source_simple_voucher",
-                    "Journal Entry-source_simple_voucher_doctype",
-                    "Journal Entry-source_simple_voucher"
+                    "Payment Entry",
+                    "Journal Entry",
+                    "Simple Payment Voucher",
+                    "Simple Receipt Voucher",
+                    "Simple Payment Account Row",
+                    "Simple Receipt Account Row",
+                    "Simple Payment Party Row",
+                    "Simple Receipt Party Row",
+                    "Simple Voucher Backend Row"
+                ]
+            ]
+        ]
+    },
+    {
+        "dt": "Property Setter",
+        "filters": [
+            [
+                "doc_type",
+                "in",
+                [
+                    "Simple Payment Voucher",
+                    "Simple Receipt Voucher",
+                    "Simple Payment Account Row",
+                    "Simple Receipt Account Row",
+                    "Simple Payment Party Row",
+                    "Simple Receipt Party Row",
+                    "Simple Voucher Backend Row"
                 ]
             ]
         ]
