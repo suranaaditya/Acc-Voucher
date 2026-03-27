@@ -153,6 +153,14 @@ fixtures = [
 # ---------------
 # Hook on document methods and events
 
+doc_events = {
+    "Payment Entry": {
+        "on_cancel": "simple_accounts_entry.simple_accounts_entry.utils.cancel_sync.cancel_linked_simple_voucher_from_backend"
+    },
+    "Journal Entry": {
+        "on_cancel": "simple_accounts_entry.simple_accounts_entry.utils.cancel_sync.cancel_linked_simple_voucher_from_backend"
+    }
+}
 # doc_events = {
 # 	"*": {
 # 		"on_update": "method",

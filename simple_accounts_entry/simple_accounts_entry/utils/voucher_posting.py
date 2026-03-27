@@ -73,34 +73,81 @@ def validate_paid_from_account_required(doc):
 		frappe.throw(_("Paid From Account is mandatory"))
 
 
-def validate_headwise_total(doc):
-	total = 0
-	for row in (doc.account_rows or []):
-		if not row.account:
-			frappe.throw(_("Row #{0}: Account is mandatory").format(row.idx))
-		if flt(row.amount) <= 0:
-			frappe.throw(_("Row #{0}: Amount must be greater than zero").format(row.idx))
-		total += flt(row.amount)
+def validate_received_in_account_required(doc):
+	if not getattr(doc, "received_in_account", None):
+		frappe.throw(_("Received In Account is mandatory"))
 
+
+def validate_headwise_rows(doc, is_receipt=False):
 	if not doc.account_rows:
 		frappe.throw(_("At least one Account Row is required for Head-wise entry"))
 
+	total_debit = 0
+	total_credit = 0
+
+	for row in (doc.account_rows or []):
+		if not row.account:
+			frappe.throw(_("Row #{0}: Account is mandatory").format(row.idx))
+
+		debit = flt(getattr(row, "debit", 0))
+		credit = flt(getattr(row, "credit", 0))
+
+		if debit > 0 and credit > 0:
+			frappe.throw(_("Row #{0}: Enter either Debit or Credit, not both").format(row.idx))
+
+		if debit <= 0 and credit <= 0:
+			frappe.throw(_("Row #{0}: Either Debit or Credit must be greater than zero").format(row.idx))
+
+		total_debit += debit
+		total_credit += credit
+
+	voucher_amount = flt(doc.amount)
+
+	if is_receipt:
+		net_amount = flt(total_credit - total_debit)
+		if net_amount != voucher_amount:
+			frappe.throw(
+				_("For Receipt Voucher, total Credit minus total Debit ({0}) must equal voucher amount ({1})").format(
+					net_amount, voucher_amount
+				)
+			)
+	else:
+		net_amount = flt(total_debit - total_credit)
+		if net_amount != voucher_amount:
+			frappe.throw(
+				_("For Payment Voucher, total Debit minus total Credit ({0}) must equal voucher amount ({1})").format(
+					net_amount, voucher_amount
+				)
+			)
+
+
+def validate_party_row_total(doc):
+	if not doc.party_rows:
+		frappe.throw(_("At least one Party Row is required for Party-wise entry"))
+
+	total = 0
+	for idx, row in enumerate(doc.party_rows, start=1):
+		if not getattr(row, "party", None):
+			frappe.throw(_("Row #{0}: Party is mandatory").format(idx))
+		if not getattr(row, "party_type", None):
+			frappe.throw(_("Row #{0}: Party Type could not be detected").format(idx))
+		if flt(getattr(row, "amount", 0)) <= 0:
+			frappe.throw(_("Row #{0}: Amount must be greater than zero").format(idx))
+		total += flt(row.amount)
+
 	if flt(total) != flt(doc.amount):
 		frappe.throw(
-			_("Total of account rows ({0}) must equal voucher amount ({1})").format(
+			_("Total of party rows ({0}) must equal voucher amount ({1})").format(
 				flt(total), flt(doc.amount)
 			)
 		)
 
 
 def validate_partywise(doc):
-	if not doc.party:
-		frappe.throw(_("Party is mandatory for Party-wise entry"))
-	if not doc.party_type:
-		frappe.throw(_("Party Type could not be detected"))
 	if flt(doc.amount) <= 0:
 		frappe.throw(_("Amount must be greater than zero"))
 	validate_company_links(doc)
+	validate_party_row_total(doc)
 
 
 def validate_contra(doc):
@@ -121,9 +168,7 @@ def validate_contra(doc):
 	validate_cash_bank_account(doc.transfer_to_account, doc.company, "Transfer To Account")
 
 
-def create_payment_entry_from_simple_voucher(doc, is_receipt=False):
-	validate_partywise(doc)
-
+def _create_single_payment_entry(doc, party_row, is_receipt=False):
 	main_account = doc.received_in_account if is_receipt else doc.paid_from_account
 	validate_main_account_company(
 		main_account,
@@ -135,17 +180,17 @@ def create_payment_entry_from_simple_voucher(doc, is_receipt=False):
 	pe.payment_type = "Receive" if is_receipt else "Pay"
 	pe.company = doc.company
 	pe.posting_date = doc.posting_date
-	pe.party_type = doc.party_type
-	pe.party = doc.party
+	pe.party_type = party_row.party_type
+	pe.party = party_row.party
 
 	if is_receipt:
 		pe.paid_to = doc.received_in_account
-		pe.received_amount = flt(doc.amount)
-		pe.paid_amount = flt(doc.amount)
+		pe.received_amount = flt(party_row.amount)
+		pe.paid_amount = flt(party_row.amount)
 	else:
 		pe.paid_from = doc.paid_from_account
-		pe.paid_amount = flt(doc.amount)
-		pe.received_amount = flt(doc.amount)
+		pe.paid_amount = flt(party_row.amount)
+		pe.received_amount = flt(party_row.amount)
 
 	mode_of_payment = getattr(doc, "receipt_method", None) if is_receipt else getattr(doc, "payment_method", None)
 	if mode_of_payment and hasattr(pe, "mode_of_payment"):
@@ -164,25 +209,55 @@ def create_payment_entry_from_simple_voucher(doc, is_receipt=False):
 	pe.source_simple_voucher_doctype = doc.doctype
 	pe.source_simple_voucher = doc.name
 
+	pe.insert(ignore_permissions=True)
+
+	if hasattr(pe, "custom_remarks"):
+		pe.custom_remarks = 1
+
+	if hasattr(pe, "remarks"):
+		pe.remarks = doc.remarks or ""
+
+	pe.save(ignore_permissions=True)
+	pe.submit()
+	return pe
+
+
+def create_payment_entries_from_simple_voucher(doc, is_receipt=False):
+	validate_partywise(doc)
+
+	if is_receipt:
+		validate_received_in_account_required(doc)
+	else:
+		validate_paid_from_account_required(doc)
+
+	doc.set("backend_rows", [])
+
+	created_docs = []
+
 	try:
-		pe.insert(ignore_permissions=True)
+		for row in doc.party_rows:
+			pe = _create_single_payment_entry(doc, row, is_receipt=is_receipt)
+			created_docs.append(pe)
 
-		if hasattr(pe, "custom_remarks"):
-			pe.custom_remarks = 1
+			doc.append("backend_rows", {
+				"backend_doctype": pe.doctype,
+				"backend_document": pe.name,
+				"party": row.party,
+				"amount": row.amount
+			})
 
-		if hasattr(pe, "remarks"):
-			pe.remarks = doc.remarks or ""
-
-		pe.save(ignore_permissions=True)
-		pe.submit()
-		return pe
+		return created_docs
 
 	except Exception as e:
-		if getattr(pe, "name", None) and frappe.db.exists("Payment Entry", pe.name):
+		for pe in created_docs:
 			try:
-				created_pe = frappe.get_doc("Payment Entry", pe.name)
-				if created_pe.docstatus == 0:
-					created_pe.delete(ignore_permissions=True)
+				if frappe.db.exists(pe.doctype, pe.name):
+					cancel_doc = frappe.get_doc(pe.doctype, pe.name)
+					if cancel_doc.docstatus == 1:
+						cancel_doc.flags.ignore_simple_voucher_sync = True
+						cancel_doc.cancel()
+					elif cancel_doc.docstatus == 0:
+						cancel_doc.delete(ignore_permissions=True)
 			except Exception:
 				pass
 		frappe.throw(str(e))
@@ -191,8 +266,12 @@ def create_payment_entry_from_simple_voucher(doc, is_receipt=False):
 def create_journal_entry_from_simple_voucher(doc, is_receipt=False):
 	validate_company_links(doc)
 	validate_row_company_links(doc)
-	validate_headwise_total(doc)
-	validate_paid_from_account_required(doc)
+	validate_headwise_rows(doc, is_receipt=is_receipt)
+
+	if is_receipt:
+		validate_received_in_account_required(doc)
+	else:
+		validate_paid_from_account_required(doc)
 
 	main_account = doc.received_in_account if is_receipt else doc.paid_from_account
 	validate_main_account_company(
@@ -203,10 +282,7 @@ def create_journal_entry_from_simple_voucher(doc, is_receipt=False):
 
 	method = getattr(doc, "receipt_method", None) if is_receipt else getattr(doc, "payment_method", None)
 
-	if method == "Cash":
-		entry_type = "Cash Entry"
-	else:
-		entry_type = "Bank Entry"
+	entry_type = "Cash Entry" if method == "Cash" else "Bank Entry"
 
 	je = frappe.new_doc("Journal Entry")
 	je.voucher_type = entry_type
@@ -229,10 +305,13 @@ def create_journal_entry_from_simple_voucher(doc, is_receipt=False):
 	})
 
 	for row in (doc.account_rows or []):
+		debit = flt(getattr(row, "debit", 0))
+		credit = flt(getattr(row, "credit", 0))
+
 		je.append("accounts", {
 			"account": row.account,
-			"debit_in_account_currency": flt(row.amount) if not is_receipt else 0,
-			"credit_in_account_currency": flt(row.amount) if is_receipt else 0,
+			"debit_in_account_currency": debit,
+			"credit_in_account_currency": credit,
 			"cost_center": row.cost_center or getattr(doc, "cost_center", None),
 			"project": row.project or getattr(doc, "project", None),
 		})
@@ -305,6 +384,27 @@ def create_contra_journal_entry_from_simple_voucher(doc):
 
 
 def cancel_linked_backend_doc(doc):
+	if doc.entry_mode == "Party-wise" and getattr(doc, "backend_rows", None):
+		for row in doc.backend_rows:
+			if not row.backend_doctype or not row.backend_document:
+				continue
+			if not frappe.db.exists(row.backend_doctype, row.backend_document):
+				continue
+
+			backend_doc = frappe.get_doc(row.backend_doctype, row.backend_document)
+
+			if row.backend_doctype == "Payment Entry":
+				if hasattr(backend_doc, "source_simple_voucher_doctype"):
+					backend_doc.db_set("source_simple_voucher_doctype", None, update_modified=False)
+				if hasattr(backend_doc, "source_simple_voucher"):
+					backend_doc.db_set("source_simple_voucher", None, update_modified=False)
+
+			if backend_doc.docstatus == 1:
+				backend_doc.flags.ignore_links = True
+				backend_doc.flags.ignore_simple_voucher_sync = True
+				backend_doc.cancel()
+		return
+
 	if not doc.backend_doctype or not doc.backend_document:
 		return
 
@@ -312,13 +412,42 @@ def cancel_linked_backend_doc(doc):
 		return
 
 	backend_doc = frappe.get_doc(doc.backend_doctype, doc.backend_document)
+
+	if doc.backend_doctype == "Journal Entry":
+		if hasattr(backend_doc, "source_simple_voucher_doctype"):
+			backend_doc.db_set("source_simple_voucher_doctype", None, update_modified=False)
+		if hasattr(backend_doc, "source_simple_voucher"):
+			backend_doc.db_set("source_simple_voucher", None, update_modified=False)
+
+	elif doc.backend_doctype == "Payment Entry":
+		if hasattr(backend_doc, "source_simple_voucher_doctype"):
+			backend_doc.db_set("source_simple_voucher_doctype", None, update_modified=False)
+		if hasattr(backend_doc, "source_simple_voucher"):
+			backend_doc.db_set("source_simple_voucher", None, update_modified=False)
+
 	if backend_doc.docstatus == 1:
+		backend_doc.flags.ignore_links = True
+		backend_doc.flags.ignore_simple_voucher_sync = True
 		backend_doc.cancel()
 
 
 def mark_post_success(doc, backend_doc):
 	doc.backend_doctype = backend_doc.doctype
 	doc.backend_document = backend_doc.name
+	doc.is_posted = 1
+	doc.posting_status = "Posted"
+	doc.error_log = ""
+
+
+def mark_post_success_for_multiple(doc, backend_docs):
+	if backend_docs:
+		first_doc = backend_docs[0]
+		doc.backend_doctype = first_doc.doctype
+		doc.backend_document = first_doc.name
+	else:
+		doc.backend_doctype = ""
+		doc.backend_document = ""
+
 	doc.is_posted = 1
 	doc.posting_status = "Posted"
 	doc.error_log = ""

@@ -2,20 +2,25 @@ from frappe.model.document import Document
 
 from simple_accounts_entry.simple_accounts_entry.utils.voucher_posting import (
 	create_journal_entry_from_simple_voucher,
-	create_payment_entry_from_simple_voucher,
+	create_payment_entries_from_simple_voucher,
 	cancel_linked_backend_doc,
 	mark_post_success,
+	mark_post_success_for_multiple,
 )
 
 
 class SimpleReceiptVoucher(Document):
 	def before_submit(self):
 		if self.entry_mode == "Party-wise":
-			backend_doc = create_payment_entry_from_simple_voucher(self, is_receipt=True)
-		else:
-			backend_doc = create_journal_entry_from_simple_voucher(self, is_receipt=True)
+			backend_docs = create_payment_entries_from_simple_voucher(self, is_receipt=True)
+			mark_post_success_for_multiple(self, backend_docs)
 
-		mark_post_success(self, backend_doc)
+		elif self.entry_mode == "Head-wise":
+			backend_doc = create_journal_entry_from_simple_voucher(self, is_receipt=True)
+			mark_post_success(self, backend_doc)
+
+		else:
+			raise Exception(f"Unsupported Entry Mode: {self.entry_mode}")
 
 	def on_cancel(self):
 		cancel_linked_backend_doc(self)
