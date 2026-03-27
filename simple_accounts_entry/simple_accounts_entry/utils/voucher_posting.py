@@ -60,6 +60,19 @@ def validate_main_account_company(account, company, label):
 		)
 
 
+def validate_cash_bank_account(account, company, label):
+	validate_main_account_company(account, company, label)
+
+	account_type = frappe.db.get_value("Account", account, "account_type")
+	if account_type not in ("Bank", "Cash", "Cash Over Short"):
+		frappe.throw(_("{0} must be a Bank or Cash account").format(label))
+
+
+def validate_paid_from_account_required(doc):
+	if not getattr(doc, "paid_from_account", None):
+		frappe.throw(_("Paid From Account is mandatory"))
+
+
 def validate_headwise_total(doc):
 	total = 0
 	for row in (doc.account_rows or []):
@@ -90,6 +103,24 @@ def validate_partywise(doc):
 	validate_company_links(doc)
 
 
+def validate_contra(doc):
+	if flt(doc.amount) <= 0:
+		frappe.throw(_("Amount must be greater than zero"))
+
+	if not getattr(doc, "transfer_from_account", None):
+		frappe.throw(_("Transfer From Account is mandatory for Contra Entry"))
+
+	if not getattr(doc, "transfer_to_account", None):
+		frappe.throw(_("Transfer To Account is mandatory for Contra Entry"))
+
+	if doc.transfer_from_account == doc.transfer_to_account:
+		frappe.throw(_("Transfer From Account and Transfer To Account cannot be the same"))
+
+	validate_company_links(doc)
+	validate_cash_bank_account(doc.transfer_from_account, doc.company, "Transfer From Account")
+	validate_cash_bank_account(doc.transfer_to_account, doc.company, "Transfer To Account")
+
+
 def create_payment_entry_from_simple_voucher(doc, is_receipt=False):
 	validate_partywise(doc)
 
@@ -116,7 +147,6 @@ def create_payment_entry_from_simple_voucher(doc, is_receipt=False):
 		pe.paid_amount = flt(doc.amount)
 		pe.received_amount = flt(doc.amount)
 
-	# Map payment method to Mode of Payment
 	mode_of_payment = getattr(doc, "receipt_method", None) if is_receipt else getattr(doc, "payment_method", None)
 	if mode_of_payment and hasattr(pe, "mode_of_payment"):
 		pe.mode_of_payment = mode_of_payment
@@ -130,7 +160,7 @@ def create_payment_entry_from_simple_voucher(doc, is_receipt=False):
 		pe.cost_center = doc.cost_center
 	if getattr(doc, "project", None):
 		pe.project = doc.project
-		
+
 	pe.source_simple_voucher_doctype = doc.doctype
 	pe.source_simple_voucher = doc.name
 
@@ -162,6 +192,7 @@ def create_journal_entry_from_simple_voucher(doc, is_receipt=False):
 	validate_company_links(doc)
 	validate_row_company_links(doc)
 	validate_headwise_total(doc)
+	validate_paid_from_account_required(doc)
 
 	main_account = doc.received_in_account if is_receipt else doc.paid_from_account
 	validate_main_account_company(
@@ -208,7 +239,56 @@ def create_journal_entry_from_simple_voucher(doc, is_receipt=False):
 
 	je.source_simple_voucher_doctype = doc.doctype
 	je.source_simple_voucher = doc.name
-	
+
+	try:
+		je.insert(ignore_permissions=True)
+		je.submit()
+		return je
+	except Exception as e:
+		if getattr(je, "name", None) and frappe.db.exists("Journal Entry", je.name):
+			try:
+				created_je = frappe.get_doc("Journal Entry", je.name)
+				if created_je.docstatus == 0:
+					created_je.delete(ignore_permissions=True)
+			except Exception:
+				pass
+		frappe.throw(str(e))
+
+
+def create_contra_journal_entry_from_simple_voucher(doc):
+	validate_contra(doc)
+
+	je = frappe.new_doc("Journal Entry")
+	je.voucher_type = "Contra Entry"
+	je.company = doc.company
+	je.posting_date = doc.posting_date
+	je.user_remark = doc.remarks or ""
+
+	if getattr(doc, "reference_no", None):
+		je.cheque_no = doc.reference_no
+
+	if getattr(doc, "reference_date", None):
+		je.cheque_date = doc.reference_date
+
+	je.append("accounts", {
+		"account": doc.transfer_to_account,
+		"debit_in_account_currency": flt(doc.amount),
+		"credit_in_account_currency": 0,
+		"cost_center": getattr(doc, "cost_center", None),
+		"project": getattr(doc, "project", None),
+	})
+
+	je.append("accounts", {
+		"account": doc.transfer_from_account,
+		"debit_in_account_currency": 0,
+		"credit_in_account_currency": flt(doc.amount),
+		"cost_center": getattr(doc, "cost_center", None),
+		"project": getattr(doc, "project", None),
+	})
+
+	je.source_simple_voucher_doctype = doc.doctype
+	je.source_simple_voucher = doc.name
+
 	try:
 		je.insert(ignore_permissions=True)
 		je.submit()

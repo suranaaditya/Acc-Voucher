@@ -7,7 +7,8 @@ frappe.ui.form.on("Simple Payment Voucher", {
 
     entry_mode(frm) {
         toggle_fields(frm);
-        clear_party_details_if_not_partywise(frm);
+        clear_irrelevant_fields(frm);
+        set_company_filters(frm);
     },
 
     company(frm) {
@@ -16,7 +17,10 @@ frappe.ui.form.on("Simple Payment Voucher", {
 
     payment_method(frm) {
         set_company_filters(frm);
-        frm.set_value("paid_from_account", "");
+
+        if (frm.doc.entry_mode !== "Contra Entry") {
+            frm.set_value("paid_from_account", "");
+        }
     },
 
     party(frm) {
@@ -29,18 +33,54 @@ frappe.ui.form.on("Simple Payment Voucher", {
 });
 
 function toggle_fields(frm) {
-    const is_party = frm.doc.entry_mode === "Party-wise";
+    const mode = frm.doc.entry_mode;
+
+    const is_party = mode === "Party-wise";
+    const is_head = mode === "Head-wise";
+    const is_contra = mode === "Contra Entry";
+
     frm.toggle_display("party_details_section", is_party);
-    frm.toggle_display("headwise_section", !is_party);
-    frm.toggle_display("account_rows", !is_party);
+    frm.toggle_display("party", is_party);
+
+    frm.toggle_display("headwise_section", is_head);
+    frm.toggle_display("account_rows", is_head);
+
+    frm.toggle_display("contra_section", is_contra);
+    frm.toggle_display("transfer_from_account", is_contra);
+    frm.toggle_display("contra_col_break", is_contra);
+    frm.toggle_display("transfer_to_account", is_contra);
+
+    frm.toggle_display("paid_from_account", !is_contra);
+    frm.toggle_display("payment_method", !is_contra);
+
+    frm.set_df_property("paid_from_account", "reqd", is_contra ? 0 : 1);
+    frm.set_df_property("payment_method", "reqd", 0);
+
+    frm.refresh_field("paid_from_account");
+    frm.refresh_field("payment_method");
 }
 
-function clear_party_details_if_not_partywise(frm) {
+function clear_irrelevant_fields(frm) {
     if (frm.doc.entry_mode !== "Party-wise") {
         frm.set_value("party", "");
         frm.set_value("party_type", "");
         frm.set_value("party_name", "");
         frm.set_value("party_doctype", "");
+    }
+
+    if (frm.doc.entry_mode !== "Contra Entry") {
+        frm.set_value("transfer_from_account", "");
+        frm.set_value("transfer_to_account", "");
+    }
+
+    if (frm.doc.entry_mode === "Contra Entry") {
+        frm.set_value("paid_from_account", "");
+        frm.set_value("payment_method", "");
+    }
+
+    if (frm.doc.entry_mode !== "Head-wise" && frm.doc.account_rows && frm.doc.account_rows.length) {
+        frm.clear_table("account_rows");
+        frm.refresh_field("account_rows");
     }
 }
 
@@ -116,8 +156,7 @@ function set_company_filters(frm) {
     frm.set_query("project", function () {
         return {
             filters: {
-                company: frm.doc.company,
-
+                company: frm.doc.company
             }
         };
     });
@@ -141,6 +180,26 @@ function set_company_filters(frm) {
         }
 
         return { filters };
+    });
+
+    frm.set_query("transfer_from_account", function () {
+        return {
+            filters: {
+                company: frm.doc.company,
+                is_group: 0,
+                account_type: ["in", ["Bank", "Cash", "Cash Over Short"]]
+            }
+        };
+    });
+
+    frm.set_query("transfer_to_account", function () {
+        return {
+            filters: {
+                company: frm.doc.company,
+                is_group: 0,
+                account_type: ["in", ["Bank", "Cash", "Cash Over Short"]]
+            }
+        };
     });
 
     if (frm.fields_dict.account_rows && frm.fields_dict.account_rows.grid) {
