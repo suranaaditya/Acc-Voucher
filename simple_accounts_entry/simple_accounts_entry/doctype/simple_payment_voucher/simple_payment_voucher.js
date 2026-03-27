@@ -107,7 +107,8 @@ function set_company_filters(frm) {
     frm.set_query("cost_center", function () {
         return {
             filters: {
-                company: frm.doc.company
+                company: frm.doc.company,
+                is_group: 0
             }
         };
     });
@@ -115,7 +116,8 @@ function set_company_filters(frm) {
     frm.set_query("project", function () {
         return {
             filters: {
-                company: frm.doc.company
+                company: frm.doc.company,
+
             }
         };
     });
@@ -145,7 +147,8 @@ function set_company_filters(frm) {
         frm.fields_dict.account_rows.grid.get_field("cost_center").get_query = function (doc) {
             return {
                 filters: {
-                    company: doc.company
+                    company: doc.company,
+                    is_group: 0
                 }
             };
         };
@@ -153,7 +156,7 @@ function set_company_filters(frm) {
         frm.fields_dict.account_rows.grid.get_field("project").get_query = function (doc) {
             return {
                 filters: {
-                    company: doc.company
+                    company: frm.doc.company
                 }
             };
         };
