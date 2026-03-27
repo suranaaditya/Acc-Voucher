@@ -1,0 +1,55 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-03-28 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "backend_doctype",
+  "backend_document",
+  "party",
+  "amount"
+ ],
+ "fields": [
+  {
+   "fieldname": "backend_doctype",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Backend Doctype",
+   "read_only": 1
+  },
+  {
+   "fieldname": "backend_document",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Backend Document",
+   "read_only": 1
+  },
+  {
+   "fieldname": "party",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Party",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-03-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Simple Accounts Entry",
+ "name": "Simple Voucher Backend Row",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}
