@@ -183,7 +183,6 @@ function setup_party_row_autocomplete(frm) {
         const input = this;
         const $input = $(input);
 
-        // force visible typing cursor on first entry
         setTimeout(() => {
             input.focus();
             try {
@@ -236,16 +235,31 @@ function setup_party_row_autocomplete(frm) {
                 const child = locals["Simple Payment Party Row"] && locals["Simple Payment Party Row"][rowname];
                 if (!child) return;
 
-                // Set only party first; let child-row event + backend lookup fill the rest
-                frappe.model.set_value(child.doctype, child.name, "party", selected.party || "").then(() => {
-                    populate_party_row_details(child.doctype, child.name);
+                frappe.model.set_value(child.doctype, child.name, "party", selected.party || "");
+
+                frappe.call({
+                    method: "simple_accounts_entry.api.get_party_details",
+                    args: {
+                        party: selected.party || "",
+                        party_type: selected.party_type || null
+                    },
+                    callback: function (r) {
+                        const data = r.message || {};
+
+                        frappe.model.set_value(child.doctype, child.name, "party_type", data.party_type || "");
+                        frappe.model.set_value(child.doctype, child.name, "party_name", data.party_name || "");
+                        frappe.model.set_value(child.doctype, child.name, "party_doctype", data.party_doctype || "");
+
+                        if (cur_frm) {
+                            cur_frm.refresh_field("party_rows");
+                        }
+                    }
                 });
             });
         }
     });
 
     wrapper.on("keydown.party_row_autocomplete", 'input[data-fieldname="party"]', function (e) {
-        // make sure first keystroke is not lost
         if (e.key && e.key.length === 1) {
             const input = this;
             setTimeout(() => {
@@ -263,6 +277,9 @@ function populate_party_row_details(cdt, cdn) {
         frappe.model.set_value(cdt, cdn, "party_type", "");
         frappe.model.set_value(cdt, cdn, "party_name", "");
         frappe.model.set_value(cdt, cdn, "party_doctype", "");
+        if (cur_frm) {
+            cur_frm.refresh_field("party_rows");
+        }
         return;
     }
 
@@ -278,6 +295,10 @@ function populate_party_row_details(cdt, cdn) {
             frappe.model.set_value(cdt, cdn, "party_type", data.party_type || "");
             frappe.model.set_value(cdt, cdn, "party_name", data.party_name || "");
             frappe.model.set_value(cdt, cdn, "party_doctype", data.party_doctype || "");
+
+            if (cur_frm) {
+                cur_frm.refresh_field("party_rows");
+            }
         }
     });
 }

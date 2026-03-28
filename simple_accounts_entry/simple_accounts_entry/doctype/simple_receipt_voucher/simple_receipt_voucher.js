@@ -197,17 +197,33 @@ function setup_party_row_autocomplete(frm) {
             }, 300));
 
             input.addEventListener("awesomplete-selectcomplete", function (evt) {
-                const row = evt.text.value;
+                const selected = evt.text && evt.text.value ? evt.text.value : null;
                 const rowname = $(input).attr("data-name");
-                if (!row || !rowname) return;
+                if (!selected || !rowname) return;
 
                 const child = locals["Simple Receipt Party Row"] && locals["Simple Receipt Party Row"][rowname];
                 if (!child) return;
 
-                frappe.model.set_value(child.doctype, child.name, "party", row.party || "");
-                frappe.model.set_value(child.doctype, child.name, "party_type", row.party_type || "");
-                frappe.model.set_value(child.doctype, child.name, "party_name", row.party_name || "");
-                frappe.model.set_value(child.doctype, child.name, "party_doctype", row.party_doctype || "");
+                frappe.model.set_value(child.doctype, child.name, "party", selected.party || "");
+
+                frappe.call({
+                    method: "simple_accounts_entry.api.get_party_details",
+                    args: {
+                        party: selected.party || "",
+                        party_type: selected.party_type || null
+                    },
+                    callback: function (r) {
+                        const data = r.message || {};
+
+                        frappe.model.set_value(child.doctype, child.name, "party_type", data.party_type || "");
+                        frappe.model.set_value(child.doctype, child.name, "party_name", data.party_name || "");
+                        frappe.model.set_value(child.doctype, child.name, "party_doctype", data.party_doctype || "");
+
+                        if (cur_frm) {
+                            cur_frm.refresh_field("party_rows");
+                        }
+                    }
+                });
             });
         }
     });
@@ -224,7 +240,17 @@ function setup_party_row_autocomplete(frm) {
 
 function populate_party_row_details(cdt, cdn) {
     const row = locals[cdt] && locals[cdt][cdn];
-    if (!row || !row.party) return;
+    if (!row) return;
+
+    if (!row.party) {
+        frappe.model.set_value(cdt, cdn, "party_type", "");
+        frappe.model.set_value(cdt, cdn, "party_name", "");
+        frappe.model.set_value(cdt, cdn, "party_doctype", "");
+        if (cur_frm) {
+            cur_frm.refresh_field("party_rows");
+        }
+        return;
+    }
 
     frappe.call({
         method: "simple_accounts_entry.api.get_party_details",
@@ -234,11 +260,14 @@ function populate_party_row_details(cdt, cdn) {
         },
         callback: function (r) {
             const data = r.message || {};
-            if (!data.party_type) return;
 
             frappe.model.set_value(cdt, cdn, "party_type", data.party_type || "");
             frappe.model.set_value(cdt, cdn, "party_name", data.party_name || "");
             frappe.model.set_value(cdt, cdn, "party_doctype", data.party_doctype || "");
+
+            if (cur_frm) {
+                cur_frm.refresh_field("party_rows");
+            }
         }
     });
 }
